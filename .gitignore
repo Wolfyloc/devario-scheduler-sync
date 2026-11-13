@@ -1,0 +1,26 @@
+# CoolerControl authentication
+api_token
+*.token
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*credentials*
+*secret*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local files and backups
+*.bak
+*.backup
+*.log
+
+# Editor and operating system
+.DS_Store
+*.swp
+*~

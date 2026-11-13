@@ -1,0 +1,5 @@
+id = "devario_scheduler_sync"
+type = "integration"
+description = "Synchronize Devario sched-ext scheduler changes with CoolerControl Modes."
+executable = "sync.py"
+privileged = false

@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "poll_interval": 2,
+  "scheduler_modes": {
+    "scx_cosmos": "d14a541b-0b8d-4608-bb2a-e8c0cda850e1",
+    "scx_lavd": "d14a541b-0b8d-4608-bb2a-e8c0cda850e1",
+    "scx_cake": "2af273ea-8e85-4e1f-97de-e4d260b0b88e"
+  }
+}
