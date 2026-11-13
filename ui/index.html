@@ -1,60 +1,476 @@
+
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<script src="/plugins/lib/cc-plugin-lib.js"></script>
-<style>
-body{font:14px system-ui,sans-serif;color:rgb(var(--colors-text-color,230 230 230));padding:16px}
-h2{margin-top:0}.panel{background:rgb(var(--colors-bg-two,38 38 45));border:1px solid rgb(var(--colors-border-one,90 90 100));border-radius:12px;padding:18px;max-width:720px}
-.field{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:14px 0}
-select,input[type=number]{min-width:170px;padding:8px;border-radius:6px;background:rgb(var(--colors-bg-one,25 25 30));color:inherit;border:1px solid rgb(var(--colors-border-one,90 90 100))}
-button{padding:9px 16px;border-radius:7px;cursor:pointer;margin-right:8px}#status{margin-top:14px;min-height:1.4em}small,.muted{color:rgb(var(--colors-text-color-secondary,170 170 180))}
-</style></head><body><div class="panel"><h2>Devario Scheduler Sync <small>v0.2</small></h2>
-<p>Automatically activate CoolerControl Modes when the sched-ext scheduler changes.</p>
-<div class="field"><label for="enabled">Enable synchronization</label><input id="enabled" type="checkbox"></div>
-<div class="field"><label for="interval">Polling interval (seconds)</label><input id="interval" type="number" min="1" max="60" value="2"></div>
-<h3>Scheduler mappings</h3><p class="muted">The plugin discovers schedulers using <code>scxcli list</code> every 30 seconds. Reopen this page or use Refresh to see new entries.</p>
-<div id="mapping"></div><button id="refresh" type="button">Refresh discovered schedulers</button><button id="save" type="button">Save mappings</button><p id="status" role="status"></p>
-<small>Unmapped schedulers leave the current cooling Mode unchanged. Unavailable catalog entries are shown but cannot currently be activated. API token is stored separately.</small>
-</div><script>
-const fallback=[{id:'default',name:'Default',installed:true},{id:'scx_cosmos',name:'Cosmos',installed:true},{id:'scx_lavd',name:'LAVD',installed:true},{id:'scx_eevdf',name:'EEVDF',installed:true},{id:'scx_cake',name:'Cake',installed:true}];
-const status=document.getElementById('status');
-let entries=[];
-let availableModes=[];
-async function render(){
-  const config=await getPluginConfig(true);
-  availableModes=await getModes(true);
-  document.getElementById('enabled').checked=config.enabled!==false;
-  document.getElementById('interval').value=config.poll_interval||2;
-  const discovered=Array.isArray(config.discovered_schedulers)&&config.discovered_schedulers.length?config.discovered_schedulers:fallback;
-  const byId=new Map(discovered.map(s=>[s.id,s]));
-  for(const id of Object.keys(config.scheduler_modes||{}))if(!byId.has(id))byId.set(id,{id,name:id,installed:false});
-  entries=[...byId.values()];
-  const container=document.getElementById('mapping');container.replaceChildren();
-  for(const item of entries){
-    const row=document.createElement('div');row.className='field';
-    const label=document.createElement('label');label.textContent=item.name+(item.installed===false?' (not installed)':'');label.htmlFor='map-'+item.id;
-    const sel=document.createElement('select');sel.id='map-'+item.id;
-    const none=document.createElement('option');none.value='';none.textContent='No change';sel.append(none);
-    for(const mode of availableModes){const opt=document.createElement('option');opt.value=mode.uid;opt.textContent=mode.name;sel.append(opt)}
-    const selected=(config.scheduler_modes||{})[item.id]||'';
-    if(selected&&!availableModes.some(m=>m.uid===selected)){const missing=document.createElement('option');missing.value=selected;missing.textContent='Missing Mode ('+selected+')';sel.append(missing)}
-    sel.value=selected;row.append(label,sel);container.append(row);
-  }
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Devario Scheduler Sync</title>
+
+  <script src="/plugins/lib/cc-plugin-lib.js"></script>
+
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      font: 14px/1.5 system-ui, sans-serif;
+      color: rgb(var(--colors-text-color, 230 230 230));
+    }
+
+    .panel {
+      max-width: 760px;
+      padding: 24px;
+      border: 1px solid rgb(var(--colors-border-one, 90 90 100));
+      border-radius: 12px;
+      background: rgb(var(--colors-bg-two, 38 38 45));
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 22px;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+
+    .version {
+      margin-left: 8px;
+      font-size: 12px;
+      font-weight: normal;
+      opacity: 0.65;
+    }
+
+    .muted,
+    .help-text {
+      color: rgb(var(--colors-text-color-secondary, 170 170 180));
+    }
+
+    .intro {
+      margin: 8px 0 0;
+    }
+
+    .section {
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid rgb(var(--colors-border-one, 90 90 100));
+    }
+
+    .field {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 14px 0;
+    }
+
+    .field label {
+      flex: 1;
+      min-width: 150px;
+    }
+
+    .field select,
+    .field input[type="number"] {
+      width: 220px;
+      max-width: 100%;
+      padding: 9px 10px;
+      border: 1px solid rgb(var(--colors-border-one, 90 90 100));
+      border-radius: 7px;
+      background: rgb(var(--colors-bg-one, 25 25 30));
+      color: inherit;
+      font: inherit;
+    }
+
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+
+    .help-text {
+      margin: 6px 0 16px;
+      font-size: 13px;
+    }
+
+    .mapping-row {
+      padding: 4px 0;
+    }
+
+    .mapping-note {
+      font-size: 12px;
+      opacity: 0.7;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    button {
+      padding: 10px 18px;
+      border: 1px solid rgb(var(--colors-border-one, 90 90 100));
+      border-radius: 8px;
+      background: rgb(var(--colors-bg-one, 25 25 30));
+      color: inherit;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    button:hover {
+      filter: brightness(1.15);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: wait;
+    }
+
+    .primary {
+  border: 2px solid #ffffff;
+  background: #2466ae;
+  color: #ffffff;
 }
-runPluginScript(async()=>{
-  try{await render()}catch(err){status.textContent='Unable to load settings: '+err.message}
-  document.getElementById('refresh').addEventListener('click',async()=>{
-    try{await render();status.textContent='Refreshed. Discovery runs in the background every 30 seconds.'}catch(err){status.textContent='Refresh failed: '+err.message}
-  });
-  document.getElementById('save').addEventListener('click',async()=>{
-    try{
-      const mappings={};for(const item of entries){const uid=document.getElementById('map-'+item.id).value;if(uid)mappings[item.id]=uid}
-      const interval=Number(document.getElementById('interval').value);
-      if(!Number.isInteger(interval)||interval<1||interval>60)throw new Error('Interval must be 1–60 seconds');
-      // Preserve discovery metadata and any future configuration keys.
-      const current=await getPluginConfig(true);
-      await savePluginConfig({...current,enabled:document.getElementById('enabled').checked,poll_interval:interval,scheduler_modes:mappings});
-      status.textContent='Saved. Changes will be picked up automatically.';
-    }catch(err){status.textContent='Save failed: '+err.message}
-  });
-});
-</script></body></html>
+
+.primary:hover {
+  background: #307acb;
+  border-color: #ffffff;
+}
+
+    #status {
+      min-height: 22px;
+      margin-top: 16px;
+      font-size: 13px;
+    }
+
+    #status.success {
+      color: #70c994;
+    }
+
+    #status.error {
+      color: #f08a8a;
+    }
+
+    .footer-note {
+      margin-top: 20px;
+      font-size: 12px;
+    }
+
+    @media (max-width: 480px) {
+      body {
+        padding: 12px;
+      }
+
+      .panel {
+        padding: 16px;
+      }
+
+      .field {
+        align-items: flex-start;
+      }
+
+      .field select,
+      .field input[type="number"] {
+        width: 100%;
+      }
+
+      .actions button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="panel">
+    <header>
+      <h2>
+        Devario Scheduler Sync
+        <span class="version">v0.2</span>
+      </h2>
+      <p class="intro muted">
+        Automatically switch CoolerControl cooling Modes when the active
+        sched-ext CPU scheduler changes.
+      </p>
+    </header>
+
+    <section class="section">
+      <h3>General Settings</h3>
+
+      <div class="field">
+        <label for="enabled">Enable automatic synchronization</label>
+        <input id="enabled" type="checkbox">
+      </div>
+
+      <div class="field">
+        <label for="interval">Scheduler check interval</label>
+        <input
+          id="interval"
+          type="number"
+          min="1"
+          max="60"
+          value="2"
+        >
+      </div>
+
+      <p class="help-text">
+        How often the plugin checks for scheduler changes, in seconds.
+        Allowed range: 1–60 seconds.
+      </p>
+    </section>
+
+    <section class="section">
+      <h3>Scheduler Mode Mappings</h3>
+
+      <p class="help-text">
+        Choose which CoolerControl Mode should activate when each CPU
+        scheduler is running. Select "No change" to keep the current
+        cooling Mode.
+      </p>
+
+      <div id="mapping"></div>
+
+      <p class="help-text">
+        Available schedulers are discovered automatically every 30 seconds.
+        Use Refresh Scheduler List to reload the latest discovered entries.
+      </p>
+    </section>
+
+    <section class="section">
+      <h3>Apply Changes</h3>
+
+      <p class="help-text">
+        Save your settings to apply updated scheduler mappings.
+        Refreshing the scheduler list does not save changes.
+      </p>
+
+      <div class="actions">
+        <button id="save" class="primary" type="button">
+          Save Settings
+        </button>
+
+        <button id="refresh" class="primary" type="button">
+          Refresh Scheduler List
+        </button>
+      </div>
+
+      <p id="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <p class="footer-note muted">
+      Uninstalled schedulers may appear in the catalog but cannot be
+      activated until installed. API credentials are stored separately.
+    </p>
+  </main>
+
+  <script>
+    const fallback = [
+      { id: "default", name: "Default", installed: true },
+      { id: "scx_cosmos", name: "Cosmos", installed: true },
+      { id: "scx_lavd", name: "LAVD", installed: true },
+      { id: "scx_eevdf", name: "EEVDF", installed: true },
+      { id: "scx_cake", name: "Cake", installed: true }
+    ];
+
+    const statusElement = document.getElementById("status");
+    const saveButton = document.getElementById("save");
+    const refreshButton = document.getElementById("refresh");
+
+    let entries = [];
+    let availableModes = [];
+
+    function setStatus(message, type = "") {
+      statusElement.textContent = message;
+      statusElement.className = type;
+    }
+
+    function setBusy(busy) {
+      saveButton.disabled = busy;
+      refreshButton.disabled = busy;
+    }
+
+    async function render() {
+      const config = await getPluginConfig(true);
+      availableModes = await getModes(true);
+
+      document.getElementById("enabled").checked =
+        config.enabled !== false;
+
+      document.getElementById("interval").value =
+        config.poll_interval || 2;
+
+      const discovered =
+        Array.isArray(config.discovered_schedulers) &&
+        config.discovered_schedulers.length
+          ? config.discovered_schedulers
+          : fallback;
+
+      const byId = new Map(
+        discovered.map(scheduler => [scheduler.id, scheduler])
+      );
+
+      // Keep configured schedulers visible even if discovery
+      // no longer reports them.
+      for (const id of Object.keys(config.scheduler_modes || {})) {
+        if (!byId.has(id)) {
+          byId.set(id, {
+            id,
+            name: id,
+            installed: false
+          });
+        }
+      }
+
+      entries = [...byId.values()];
+
+      const container = document.getElementById("mapping");
+      container.replaceChildren();
+
+      for (const item of entries) {
+        const row = document.createElement("div");
+        row.className = "field mapping-row";
+
+        const label = document.createElement("label");
+        label.htmlFor = "map-" + item.id;
+        label.textContent = item.name;
+
+        if (item.installed === false) {
+          const note = document.createElement("span");
+          note.className = "mapping-note";
+          note.textContent = " (not installed)";
+          label.append(note);
+        }
+
+        const select = document.createElement("select");
+        select.id = "map-" + item.id;
+
+        const none = document.createElement("option");
+        none.value = "";
+        none.textContent = "No change";
+        select.append(none);
+
+        for (const mode of availableModes) {
+          const option = document.createElement("option");
+          option.value = mode.uid;
+          option.textContent = mode.name;
+          select.append(option);
+        }
+
+        const selected =
+          (config.scheduler_modes || {})[item.id] || "";
+
+        if (
+          selected &&
+          !availableModes.some(mode => mode.uid === selected)
+        ) {
+          const missing = document.createElement("option");
+          missing.value = selected;
+          missing.textContent = "Missing Mode (" + selected + ")";
+          select.append(missing);
+        }
+
+        select.value = selected;
+
+        row.append(label, select);
+        container.append(row);
+      }
+    }
+
+    runPluginScript(async () => {
+      try {
+        await render();
+      } catch (error) {
+        setStatus(
+          "Unable to load settings: " + error.message,
+          "error"
+        );
+      }
+
+      refreshButton.addEventListener("click", async () => {
+        setBusy(true);
+
+        try {
+          await render();
+          setStatus(
+            "Scheduler list refreshed successfully.",
+            "success"
+          );
+        } catch (error) {
+          setStatus(
+            "Refresh failed: " + error.message,
+            "error"
+          );
+        } finally {
+          setBusy(false);
+        }
+      });
+
+      saveButton.addEventListener("click", async () => {
+        setBusy(true);
+
+        try {
+          const mappings = {};
+
+          for (const item of entries) {
+            const uid = document.getElementById(
+              "map-" + item.id
+            ).value;
+
+            if (uid) {
+              mappings[item.id] = uid;
+            }
+          }
+
+          const interval = Number(
+            document.getElementById("interval").value
+          );
+
+          if (
+            !Number.isInteger(interval) ||
+            interval < 1 ||
+            interval > 60
+          ) {
+            throw new Error(
+              "Interval must be between 1 and 60 seconds."
+            );
+          }
+
+          // Preserve discovery metadata and other settings.
+          const current = await getPluginConfig(true);
+
+          await savePluginConfig({
+            ...current,
+            enabled: document.getElementById("enabled").checked,
+            poll_interval: interval,
+            scheduler_modes: mappings
+          });
+
+          setStatus(
+            "Settings saved successfully. Changes will be " +
+            "applied automatically.",
+            "success"
+          );
+        } catch (error) {
+          setStatus(
+            "Unable to save settings: " + error.message,
+            "error"
+          );
+        } finally {
+          setBusy(false);
+        }
+      });
+    });
+  </script>
+</body>
+</html>
