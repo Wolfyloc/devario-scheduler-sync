@@ -1,6 +1,5 @@
 {
   "enabled": true,
-  "poll_interval": 2,
   "scheduler_modes": {},
   "api_url": "http://127.0.0.1:11987"
 }
