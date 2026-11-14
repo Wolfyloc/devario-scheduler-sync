@@ -206,20 +206,9 @@
       </div>
       <p class="help-text">Use the default loopback address unless CoolerControl uses a custom address or port.</p>
 
-      <div class="field">
-        <label for="interval">Scheduler check interval</label>
-        <input
-          id="interval"
-          type="number"
-          min="1"
-          max="60"
-          value="2"
-        >
-      </div>
-
       <p class="help-text">
-        How often the plugin checks for scheduler changes, in seconds.
-        Allowed range: 1–60 seconds.
+        Scheduler changes are detected automatically through systemd D-Bus
+        notifications. No scheduler polling interval is required.
       </p>
     </section>
 
@@ -302,9 +291,6 @@
 
       document.getElementById("api_url").value =
         config.api_url || "http://127.0.0.1:11987";
-
-      document.getElementById("interval").value =
-        config.poll_interval || 2;
 
       const discovered =
         Array.isArray(config.discovered_schedulers) &&
@@ -428,20 +414,6 @@
             }
           }
 
-          const interval = Number(
-            document.getElementById("interval").value
-          );
-
-          if (
-            !Number.isInteger(interval) ||
-            interval < 1 ||
-            interval > 60
-          ) {
-            throw new Error(
-              "Interval must be between 1 and 60 seconds."
-            );
-          }
-
           const apiUrl = document.getElementById("api_url").value.trim().replace(/\/+$/, "");
           let parsedUrl;
           try {
@@ -461,7 +433,6 @@
           await savePluginConfig({
             ...current,
             enabled: document.getElementById("enabled").checked,
-            poll_interval: interval,
             api_url: apiUrl,
             scheduler_modes: mappings
           });
