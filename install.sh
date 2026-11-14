@@ -1,10 +1,8 @@
-
 #!/usr/bin/env bash
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEST="/var/lib/coolercontrol/plugins/devario_scheduler_sync"
-PLUGIN_USER="cc-plugin-user"
 SERVICE="coolercontrold.service"
 
 if [[ $EUID -ne 0 ]]; then
@@ -26,7 +24,7 @@ done
 
 echo "Installing Devario Scheduler Sync..."
 
-# Preserve CoolerControl-managed directory permissions.
+# Create required plugin paths; CoolerControl manages plugin ownership.
 [[ -d "$DEST" ]] || install -d -m 755 "$DEST"
 [[ -d "$DEST/ui" ]] || install -d -m 755 "$DEST/ui"
 
@@ -34,8 +32,6 @@ echo "Installing Devario Scheduler Sync..."
 if [[ -f "$DEST/manifest.toml" ]]; then
     BACKUP="$(mktemp -d \
         /var/lib/coolercontrol/devario_scheduler_sync-backup-XXXXXXXX)"
-
-    chmod 700 "$BACKUP"
 
     for file in manifest.toml sync.py config.json api_token; do
         if [[ -f "$DEST/$file" ]]; then
@@ -57,7 +53,7 @@ install -m 644 "$SRC/ui/index.html" "$DEST/ui/index.html"
 
 # Preserve existing scheduler mappings.
 if [[ ! -f "$DEST/config.json" ]]; then
-    install -m 600 "$SRC/config.json" "$DEST/config.json"
+    install -m 644 "$SRC/config.json" "$DEST/config.json"
 fi
 
 # Preserve existing API credentials.
@@ -75,43 +71,6 @@ if [[ ! -f "$DEST/api_token" ]]; then
     unset token
 fi
 
-chmod 600 "$DEST/config.json" "$DEST/api_token"
-
-# Allow CoolerControl to provision its service account if needed.
-if ! getent passwd "$PLUGIN_USER" >/dev/null ||
-   ! getent group "$PLUGIN_USER" >/dev/null; then
-
-    echo "Waiting for CoolerControl to provision $PLUGIN_USER..."
-    systemctl restart "$SERVICE"
-
-    for attempt in {1..20}; do
-        if getent passwd "$PLUGIN_USER" >/dev/null &&
-           getent group "$PLUGIN_USER" >/dev/null; then
-            break
-        fi
-        sleep 1
-    done
-fi
-
-if ! getent passwd "$PLUGIN_USER" >/dev/null ||
-   ! getent group "$PLUGIN_USER" >/dev/null; then
-    echo "CoolerControl did not provision $PLUGIN_USER." >&2
-    echo "Inspect: journalctl -u $SERVICE -n 50" >&2
-    exit 1
-fi
-
-# Apply restrictive ownership and permissions.
-chown "$PLUGIN_USER:$PLUGIN_USER" \
-    "$DEST/config.json" \
-    "$DEST/api_token"
-
-chmod 600 "$DEST/config.json" "$DEST/api_token"
-chmod 755 "$DEST/sync.py"
-chmod 644 "$DEST/manifest.toml" "$DEST/ui/index.html"
-
-# Load the completed plugin installation.
-echo "Restarting CoolerControl..."
-systemctl restart "$SERVICE"
-
 echo "Installation complete."
 echo "Open CoolerControl > Plugins > devario_scheduler_sync"
+echo "On CoolerControl 5.1+, use the Plugins page to discover the installation."

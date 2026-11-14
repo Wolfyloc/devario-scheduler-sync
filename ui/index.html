@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="en">
 <head>
@@ -9,10 +8,6 @@
   <script src="/plugins/lib/cc-plugin-lib.js"></script>
 
   <style>
-    :root {
-      color-scheme: dark;
-    }
-
     * {
       box-sizing: border-box;
     }
@@ -21,15 +16,15 @@
       margin: 0;
       padding: 20px;
       font: 14px/1.5 system-ui, sans-serif;
-      color: rgb(var(--colors-text-color, 230 230 230));
+      color: rgb(var(--colors-text-color));
     }
 
     .panel {
       max-width: 760px;
       padding: 24px;
-      border: 1px solid rgb(var(--colors-border-one, 90 90 100));
+      border: 1px solid rgb(var(--colors-border-one));
       border-radius: 12px;
-      background: rgb(var(--colors-bg-two, 38 38 45));
+      background: rgb(var(--colors-bg-two));
     }
 
     h2 {
@@ -42,16 +37,10 @@
       font-size: 16px;
     }
 
-    .version {
-      margin-left: 8px;
-      font-size: 12px;
-      font-weight: normal;
-      opacity: 0.65;
-    }
 
     .muted,
     .help-text {
-      color: rgb(var(--colors-text-color-secondary, 170 170 180));
+      color: rgb(var(--colors-text-color-secondary));
     }
 
     .intro {
@@ -61,7 +50,7 @@
     .section {
       margin-top: 24px;
       padding-top: 20px;
-      border-top: 1px solid rgb(var(--colors-border-one, 90 90 100));
+      border-top: 1px solid rgb(var(--colors-border-one));
     }
 
     .field {
@@ -79,13 +68,14 @@
     }
 
     .field select,
-    .field input[type="number"] {
+    .field input[type="number"],
+    .field input[type="url"] {
       width: 220px;
       max-width: 100%;
       padding: 9px 10px;
-      border: 1px solid rgb(var(--colors-border-one, 90 90 100));
+      border: 1px solid rgb(var(--colors-border-one));
       border-radius: 7px;
-      background: rgb(var(--colors-bg-one, 25 25 30));
+      background: rgb(var(--colors-bg-one));
       color: inherit;
       font: inherit;
     }
@@ -117,36 +107,33 @@
       margin-top: 24px;
     }
 
+    /* CoolerControl supplies these theme variables through runPluginScript.
+       Keep button colors theme-driven rather than forcing a blue/white palette. */
     button {
       padding: 10px 18px;
-      border: 1px solid rgb(var(--colors-border-one, 90 90 100));
+      border: 1px solid rgb(var(--colors-border-one));
       border-radius: 8px;
-      background: rgb(var(--colors-bg-one, 25 25 30));
-      color: inherit;
+      background: rgb(var(--colors-bg-one));
+      color: rgb(var(--colors-text-color));
       font: inherit;
       font-weight: 600;
       cursor: pointer;
+      transition: filter 120ms ease;
     }
 
-    button:hover {
-      filter: brightness(1.15);
+    button:hover:not(:disabled) {
+      filter: brightness(1.12);
+    }
+
+    button:focus-visible {
+      outline: 2px solid currentColor;
+      outline-offset: 2px;
     }
 
     button:disabled {
       opacity: 0.5;
       cursor: wait;
     }
-
-    .primary {
-  border: 2px solid #ffffff;
-  background: #2466ae;
-  color: #ffffff;
-}
-
-.primary:hover {
-  background: #307acb;
-  border-color: #ffffff;
-}
 
     #status {
       min-height: 22px;
@@ -155,11 +142,11 @@
     }
 
     #status.success {
-      color: #70c994;
+      color: rgb(var(--colors-text-color));
     }
 
     #status.error {
-      color: #f08a8a;
+      color: rgb(var(--colors-text-color));
     }
 
     .footer-note {
@@ -181,7 +168,8 @@
       }
 
       .field select,
-      .field input[type="number"] {
+      .field input[type="number"],
+      .field input[type="url"] {
         width: 100%;
       }
 
@@ -197,7 +185,6 @@
     <header>
       <h2>
         Devario Scheduler Sync
-        <span class="version">v0.2</span>
       </h2>
       <p class="intro muted">
         Automatically switch CoolerControl cooling Modes when the active
@@ -212,6 +199,12 @@
         <label for="enabled">Enable automatic synchronization</label>
         <input id="enabled" type="checkbox">
       </div>
+
+      <div class="field">
+        <label for="api_url">CoolerControl API URL</label>
+        <input id="api_url" type="url" value="http://127.0.0.1:11987" required>
+      </div>
+      <p class="help-text">Use the default loopback address unless CoolerControl uses a custom address or port.</p>
 
       <div class="field">
         <label for="interval">Scheduler check interval</label>
@@ -256,11 +249,11 @@
       </p>
 
       <div class="actions">
-        <button id="save" class="primary" type="button">
+        <button id="save" type="button">
           Save Settings
         </button>
 
-        <button id="refresh" class="primary" type="button">
+        <button id="refresh" type="button">
           Refresh Scheduler List
         </button>
       </div>
@@ -306,6 +299,9 @@
 
       document.getElementById("enabled").checked =
         config.enabled !== false;
+
+      document.getElementById("api_url").value =
+        config.api_url || "http://127.0.0.1:11987";
 
       document.getElementById("interval").value =
         config.poll_interval || 2;
@@ -446,6 +442,19 @@
             );
           }
 
+          const apiUrl = document.getElementById("api_url").value.trim().replace(/\/+$/, "");
+          let parsedUrl;
+          try {
+            parsedUrl = new URL(apiUrl);
+          } catch (_) {
+            throw new Error("Enter a valid CoolerControl API URL.");
+          }
+          if (!["http:", "https:"].includes(parsedUrl.protocol) ||
+              !parsedUrl.hostname || parsedUrl.username || parsedUrl.password ||
+              parsedUrl.search || parsedUrl.hash) {
+            throw new Error("API URL must use HTTP(S) without credentials or query parameters.");
+          }
+
           // Preserve discovery metadata and other settings.
           const current = await getPluginConfig(true);
 
@@ -453,6 +462,7 @@
             ...current,
             enabled: document.getElementById("enabled").checked,
             poll_interval: interval,
+            api_url: apiUrl,
             scheduler_modes: mappings
           });
 
