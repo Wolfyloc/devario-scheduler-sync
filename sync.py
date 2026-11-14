@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Devario scheduler to CoolerControl Mode synchronization, v0.2."""
+"""Devario scheduler to CoolerControl Mode synchronization."""
 import json
 import logging
 from pathlib import Path
@@ -9,9 +9,10 @@ import subprocess
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent
-API = 'http://127.0.0.1:11987'
+DEFAULT_API_URL = 'http://127.0.0.1:11987'
 LOG = logging.getLogger('devario_scheduler_sync')
 STOP = False
 SCHEDULER_ID = re.compile(r'^(?:default|scx_[a-zA-Z0-9_+.-]+)$')
@@ -73,13 +74,29 @@ def publish_catalog(catalog):
         temp.unlink(missing_ok=True)
     LOG.info('Discovered %d schedulers (%d installed)', len(catalog), sum(s['installed'] for s in catalog))
 
-def request(path, token, method='GET'):
+def api_url_from_config(config):
+    value = config.get('api_url', DEFAULT_API_URL)
+    if not isinstance(value, str):
+        raise ValueError('api_url must be a URL string')
+    value = value.strip().rstrip('/')
+    parts = urlsplit(value)
+    if (parts.scheme not in ('http', 'https') or not parts.hostname
+            or parts.username or parts.password or parts.query or parts.fragment):
+        raise ValueError('api_url must be an http(s) URL without credentials or query')
+    try:
+        _ = parts.port
+    except ValueError as exc:
+        raise ValueError('Invalid port in api_url') from exc
+    return value
+
+
+def request(path, token, api_url, method='GET'):
     headers = {'Authorization': 'Bearer ' + token, 'Accept': 'application/json'}
     data = None
     if method == 'POST':
         data = b'{}'
         headers['Content-Type'] = 'application/json'
-    req = Request(API + path, headers=headers, data=data, method=method)
+    req = Request(api_url + path, headers=headers, data=data, method=method)
     with urlopen(req, timeout=5) as response:
         raw = response.read()
         return json.loads(raw) if raw else {}
@@ -89,6 +106,7 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     last_success = None
+    last_api_url = None
     last_observed = None
     last_catalog_attempt = 0
     transition_logged = False
@@ -103,6 +121,10 @@ def main():
                 except (OSError, ValueError, subprocess.SubprocessError) as exc:
                     LOG.warning('Scheduler discovery unavailable: %s', exc)
             config, interval, mapping = load_config()
+            api_url = api_url_from_config(config)
+            if api_url != last_api_url:
+                last_success = None
+                last_api_url = api_url
             if not config.get('enabled', True):
                 last_success = None
                 last_observed = None
@@ -127,9 +149,9 @@ def main():
                             token = (ROOT / 'api_token').read_text().strip()
                             if not token:
                                 raise ValueError('API token is empty')
-                            current = request('/modes-active', token).get('current_mode_uid')
+                            current = request('/modes-active', token, api_url).get('current_mode_uid')
                             if current != target:
-                                request('/modes-active/' + target, token, 'POST')
+                                request('/modes-active/' + target, token, api_url, 'POST')
                                 LOG.info('Scheduler %s: activated CoolerControl mode %s', active, target)
                             else:
                                 LOG.info('Scheduler %s: target mode already active', active)
