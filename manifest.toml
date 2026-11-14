@@ -3,5 +3,5 @@ type = "integration"
 description = "Synchronize Devario sched-ext scheduler changes with CoolerControl Modes."
 executable = "sync.py"
 privileged = false
-version = "0.2.1"
+version = "0.3.0"
 url = "https://github.com/Wolfyloc/devario-scheduler-sync"
